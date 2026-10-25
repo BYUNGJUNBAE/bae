@@ -1,0 +1,16 @@
+name: laptop_remote
+description: 노트북 전원 제어 (끄기/최대 절전/절전/켜기)
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  shared_preferences: ^2.2.0
+
+flutter:
+  uses-material-design: true

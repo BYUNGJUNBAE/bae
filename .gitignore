@@ -1,0 +1,4 @@
+agent/config.json
+__pycache__/
+.dart_tool/
+build/
