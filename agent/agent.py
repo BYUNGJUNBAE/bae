@@ -1,7 +1,7 @@
 """노트북 전원 제어 에이전트 (Windows, 표준 라이브러리만 사용)
 
 엔드포인트 (헤더 `X-Token` 필요)
-  GET  /status            상태 확인
+  GET  /status            상태 확인 (유선 어댑터 MAC / 브로드캐스트 주소 포함)
   POST /shutdown          완전 종료 (기본 10초 유예, ?delay=N)
   POST /hibernate         최대 절전
   POST /sleep             절전
@@ -48,6 +48,31 @@ def run(cmd):
     return subprocess.call(cmd)
 
 
+WIRED_QUERY = (
+    "$a = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and $_.PhysicalMediaType -eq '802.3' } | Select-Object -First 1; "
+    "if ($a) { $ip = Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 | Select-Object -First 1; "
+    "@{mac=$a.MacAddress; ip=$ip.IPAddress; prefix=$ip.PrefixLength} | ConvertTo-Json -Compress }"
+)
+
+
+def wired_info():
+    """유선 어댑터의 MAC / 브로드캐스트 주소 (Windows 전용, 실패 시 빈 값)"""
+    if not IS_WINDOWS:
+        return {}
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", WIRED_QUERY], timeout=8, text=True
+        ).strip()
+        if not out:
+            return {}
+        d = json.loads(out)
+        net = ipaddress.ip_network("%s/%s" % (d["ip"], d["prefix"]), strict=False)
+        return {"mac": d["mac"].replace("-", ":"), "broadcast": str(net.broadcast_address)}
+    except Exception as e:  # 조회 실패는 상태 응답을 막지 않는다
+        print("wired_info failed:", e)
+        return {}
+
+
 def build_actions(delay):
     return {
         "shutdown": ["shutdown", "/s", "/t", str(delay)],
@@ -81,7 +106,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return self._reply(401, {"ok": False, "error": "unauthorized"})
         if urlparse(self.path).path == "/status":
-            return self._reply(200, {"ok": True, "host": platform.node(), "os": platform.system()})
+            body = {"ok": True, "host": platform.node(), "os": platform.system()}
+            body.update(wired_info())
+            return self._reply(200, body)
         self._reply(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):

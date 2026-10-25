@@ -88,6 +88,7 @@ class _HomePageState extends State<HomePage> {
           .get(_uri('/status'), headers: _headers)
           .timeout(const Duration(seconds: 4));
       final ok = r.statusCode == 200;
+      if (ok) await _learnWiredInfo(jsonDecode(r.body) as Map<String, dynamic>);
       setState(() {
         online = ok;
         status = ok
@@ -100,6 +101,17 @@ class _HomePageState extends State<HomePage> {
         status = '응답 없음 (꺼짐/절전 또는 연결 불가)';
       });
     }
+  }
+
+  // 에이전트가 알려준 유선 MAC/브로드캐스트를 저장해 두면 꺼진 뒤에도 켜기에 쓸 수 있다
+  Future<void> _learnWiredInfo(Map<String, dynamic> body) async {
+    final mac = body['mac'] as String?;
+    final bc = body['broadcast'] as String?;
+    if (mac == null || mac.isEmpty) return;
+    if (mac == settings.mac && (bc == null || bc == settings.broadcast)) return;
+    settings.mac = mac;
+    if (bc != null && bc.isNotEmpty) settings.broadcast = bc;
+    await settings.save();
   }
 
   Future<void> _send(String action, String label) async {
@@ -142,12 +154,14 @@ class _HomePageState extends State<HomePage> {
     try {
       final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       socket.broadcastEnabled = true;
-      final target = InternetAddress(settings.broadcast);
-      for (final port in [9, 7]) {
-        socket.send(packet, target, port);
+      final targets = {settings.broadcast, '255.255.255.255'};
+      for (final t in targets) {
+        for (final port in [9, 7]) {
+          socket.send(packet, InternetAddress(t), port);
+        }
       }
       socket.close();
-      _toast('깨우기 신호 전송됨 (같은 Wi-Fi에서만 도달)');
+      _toast('깨우기 신호 전송됨 (집 공유기 안에서만 도달)');
     } catch (e) {
       _toast('신호 전송 실패');
     }
